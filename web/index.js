@@ -10,6 +10,11 @@ import verifyRequest from "./middleware/verify-request.js";
 import { setupGDPRWebHooks } from "./gdpr.js";
 import productCreator from "./helpers/product-creator.js";
 import { BillingInterval } from "./helpers/ensure-billing.js";
+import applyQrCodeApiEndpoints from "./middleware/qr-code-api.js";
+import { QRCodesDB } from "./qr-codes-db.js";
+import applyQrCodePublicEndpoints from "./middleware/qr-code-public.js";
+
+
 
 const USE_ONLINE_TOKENS = false;
 const TOP_LEVEL_OAUTH_COOKIE = "shopify_top_level_oauth";
@@ -21,8 +26,11 @@ const isTest = process.env.NODE_ENV === "test" || !!process.env.VITE_TEST_BUILD;
 const DEV_INDEX_PATH = `${process.cwd()}/frontend/`;
 const PROD_INDEX_PATH = `${process.cwd()}/frontend/dist/`;
 
-const DB_PATH = `${process.cwd()}/database.sqlite`;
-
+const dbFile = join(process.cwd(), "database.sqlite");
+const sessionDb = new Shopify.Session.SQLiteSessionStorage(dbFile);
+// Initialize SQLite DB
+QRCodesDB.db = sessionDb.db;
+QRCodesDB.init();
 Shopify.Context.initialize({
   API_KEY: process.env.SHOPIFY_API_KEY,
   API_SECRET_KEY: process.env.SHOPIFY_API_SECRET,
@@ -31,8 +39,7 @@ Shopify.Context.initialize({
   HOST_SCHEME: process.env.HOST.split("://")[0],
   API_VERSION: LATEST_API_VERSION,
   IS_EMBEDDED_APP: true,
-  // This should be replaced with your preferred storage strategy
-  SESSION_STORAGE: new Shopify.Session.SQLiteSessionStorage(DB_PATH),
+  SESSION_STORAGE: sessionDb,
 });
 
 // Storing the currently active shops in memory will force them to re-login when your server restarts. You should
@@ -79,6 +86,8 @@ export async function createServer(
   applyAuthMiddleware(app, {
     billing: billingSettings,
   });
+  applyQrCodePublicEndpoints(app);
+
 
   app.post("/api/webhooks", async (req, res) => {
     try {
@@ -134,6 +143,7 @@ export async function createServer(
   });
 
   app.use(express.json());
+  applyQrCodeApiEndpoints(app);
 
   app.use((req, res, next) => {
     const shop = req.query.shop;
